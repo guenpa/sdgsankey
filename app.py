@@ -169,7 +169,6 @@ if st.session_state.data_df is None:
             # Initialize editable_data when defaults load
             st.session_state.editable_data = st.session_state.data_df.copy()
             default_loaded_flag = True
-            st.info(f"✅ Loaded default data from {DEFAULT_DATA_PATH}")
         except Exception as e:
             st.warning(f"⚠️ Could not load default data file ({DEFAULT_DATA_PATH}): {e}")
     # else: # Don't show this message if defaults were just loaded
@@ -182,7 +181,6 @@ if st.session_state.positions_df is None:
         try:
             st.session_state.positions_df = pd.read_csv(DEFAULT_POSITIONS_PATH)
             default_loaded_flag = True # Set flag if positions also loaded
-            st.info(f"✅ Loaded default positions from {DEFAULT_POSITIONS_PATH}")
         except Exception as e:
             st.warning(f"⚠️ Could not load default positions file ({DEFAULT_POSITIONS_PATH}): {e}")
 
