@@ -266,11 +266,11 @@ elif st.session_state.data_df is None and not default_loaded_flag:
          st.info(f"📊 Upload an Excel data file or place default files ('{os.path.basename(DEFAULT_DATA_PATH)}', '{os.path.basename(DEFAULT_POSITIONS_PATH)}') in ./data/ to begin.")
 
 
-# --- Instructions Footer (Last Section) ---
-st.markdown("---")
-st.markdown(f"""
-**Instructions:**
-1.  Default data may be loaded from `{DEFAULT_DATA_PATH}` and `{DEFAULT_POSITIONS_PATH}` on startup if present in a `./data/` subfolder.
-2.  Upload new files using the buttons below the table to replace the current data/positions.
-3.  Edit flow data directly in the table. **The chart updates automatically** after each edit.
-""")
+# # --- Instructions Footer (Last Section) ---
+# st.markdown("---")
+# st.markdown(f"""
+# **Instructions:**
+# 1.  Default data may be loaded from `{DEFAULT_DATA_PATH}` and `{DEFAULT_POSITIONS_PATH}` on startup if present in a `./data/` subfolder.
+# 2.  Upload new files using the buttons below the table to replace the current data/positions.
+# 3.  Edit flow data directly in the table. **The chart updates automatically** after each edit.
+# """)
