@@ -56,100 +56,135 @@ def create_sankey_diagram(data, positions_df=None):
     # 2) Determine valid nodes
     valid_nodes = sorted(set(df['source']).union(df['target']))
 
-    # 3) Parse positions_df (unchanged from your code)
+    # 3) Parse positions_df (if provided) into mappings + ordering
     if positions_df is not None and not positions_df.empty:
         pos = positions_df.copy()
         pos.columns = pos.columns.str.strip().str.lower()
         if 'node' in pos.columns:
             pos['node'] = pos['node'].astype(str).str.strip()
+            # keep only nodes that appear in the flows
             pos = pos[pos['node'].isin(valid_nodes)]
+
+            # build node order: as in CSV, then any missing nodes
             nodes = pos['node'].tolist()
             for n in valid_nodes:
                 if n not in nodes:
                     nodes.append(n)
+
+            # ensure required columns exist
             for col in ['x','y','node_color','incoming_flow_color','outgoing_flow_color']:
                 if col not in pos.columns:
                     pos[col] = np.nan if col in ['x','y'] else ""
-            node_colors_custom = dict(zip(pos['node'], pos['node_color']))
-            incoming_flow_map = dict(zip(pos['node'], pos['incoming_flow_color']))
-            outgoing_flow_map = dict(zip(pos['node'], pos['outgoing_flow_color']))
+
+            node_colors_custom      = dict(zip(pos['node'], pos['node_color']))
+            incoming_flow_map       = dict(zip(pos['node'], pos['incoming_flow_color']))
+            outgoing_flow_map       = dict(zip(pos['node'], pos['outgoing_flow_color']))
+            # build predefined positions (flip y for Plotly)
             xs = pd.to_numeric(pos.set_index('node').reindex(nodes)['x'], errors='coerce')
             ys = pd.to_numeric(pos.set_index('node').reindex(nodes)['y'], errors='coerce')
-            predefined_positions = {
+            predefined_positions    = {
                 'x': xs.where(xs.notna(), None).tolist(),
                 'y': [None if pd.isna(y) else 1-y for y in ys.tolist()]
             }
             arrangement = 'perpendicular'
         else:
-            nodes = valid_nodes
-            node_colors_custom = incoming_flow_map = outgoing_flow_map = {}
+            # missing 'node' column: fallback
+            nodes                = valid_nodes
+            node_colors_custom   = {}
+            incoming_flow_map    = {}
+            outgoing_flow_map    = {}
             predefined_positions = None
-            arrangement = 'snap'
+            arrangement          = 'snap'
             st.warning("⚠️ Positions file missing 'node' column; using defaults.")
     else:
-        nodes = valid_nodes
-        node_colors_custom = incoming_flow_map = outgoing_flow_map = {}
+        # no positions provided
+        nodes                = valid_nodes
+        node_colors_custom   = {}
+        incoming_flow_map    = {}
+        outgoing_flow_map    = {}
         predefined_positions = None
-        arrangement = 'snap'
+        arrangement          = 'snap'
 
     # 4) Compute node values & labels
     node_values = {
-        n: max(df.loc[df['target']==n, 'value'].sum(), df.loc[df['source']==n, 'value'].sum(), 0.001)
+        n: max(
+            df.loc[df['target']==n, 'value'].sum(),
+            df.loc[df['source']==n, 'value'].sum(),
+            0.001
+        )
         for n in nodes
     }
     labels = [f"{n} ({node_values[n]:,.0f})" for n in nodes]
 
-    # 5) Final node colors (unchanged)
+    # 5) Final node colors (safe .strip())
     final_node_colors = []
     for n in nodes:
         raw = node_colors_custom.get(n, "")
-        c = str(raw).strip()
+        c   = str(raw).strip()
         final_node_colors.append(c if (c and c.lower() != "nan") else DEFAULT_NODE_COLOR)
 
-    # 6) Build link arrays (unchanged)
-    idx = {n:i for i,n in enumerate(nodes)}
+    # 6) Build link arrays
+    idx     = {n:i for i,n in enumerate(nodes)}
     sources = [idx[s] for s in df['source']]
     targets = [idx[t] for t in df['target']]
-    values = df['value'].tolist()
+    values  = df['value'].tolist()
 
-    # 7) Link colors (unchanged)
+    # 7) Link colors (with zero-flow alpha)
     link_colors = []
     for i, s in enumerate(df['source']):
         if df['is_zero'].iat[i]:
             link_colors.append(add_alpha(DEFAULT_FLOW_COLOR, 0.25))
         else:
+            # outgoing preference
             raw_oc = outgoing_flow_map.get(s, "")
-            oc = str(raw_oc).strip()
+            oc     = str(raw_oc).strip()
             if oc and oc.lower() != "nan":
                 link_colors.append(oc)
             else:
+                # incoming fallback
                 raw_ic = incoming_flow_map.get(df['target'].iat[i], "")
-                ic = str(raw_ic).strip()
+                ic     = str(raw_ic).strip()
                 link_colors.append(ic if (ic and ic.lower() != "nan") else DEFAULT_FLOW_COLOR)
 
-    # 8) Plotly Sankey with ONLY the hover changed here:
-    customdata = [[df['source'].iat[i], values[i]] for i in range(len(values))]
+    # 8) Build the Plotly Sankey
     fig = go.Figure(go.Sankey(
         arrangement=arrangement,
         node=dict(
-            pad=15, thickness=20, line=dict(color="black", width=0.5),
-            label=labels, color=final_node_colors,
+            pad=15,
+            thickness=20,
+            line=dict(color="black", width=0.5),
+            label=labels,
+            color=final_node_colors,
             x=predefined_positions['x'] if predefined_positions else None,
             y=predefined_positions['y'] if predefined_positions else None,
             hovertemplate='Node: %{label}<extra></extra>'
         ),
         link=dict(
-            source=sources, target=targets, value=values,
+            source=sources,
+            target=targets,
+            value=values,
             color=link_colors,
-            customdata=customdata,
-            hovertemplate='%{customdata[0]}: %{customdata[1]:,.0f}<extra></extra>'  # ONLY THIS LINE CHANGED
+            customdata=[[df['source'].iloc[i], values[i]] for i in range(len(values))],
+            hovertemplate='%{customdata[0]}: %{customdata[1]:,.0f}<extra></extra>'
         )
     ))
 
-    theme = st.get_option("theme.base")
-    bg, font_c = ('#000','#FFF') if theme=='dark' else ('#FFF','#000')
-    fig.update_layout(font=dict(color=font_c,size=12), plot_bgcolor=bg, paper_bgcolor=bg,
-                      height=800, margin=dict(l=20,r=20,t=40,b=20))
+    # 9) Theme‐aware styling
+    theme = st.get_option("theme.base")  # "light" or "dark"
+    if theme == 'dark':
+        bg     = '#000000'
+        font_c = '#FFFFFF'
+    else:
+        bg     = '#FFFFFF'
+        font_c = '#000000'
+
+    fig.update_layout(
+        font=dict(color=font_c, size=12),
+        plot_bgcolor=bg,
+        paper_bgcolor=bg,
+        height=800,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
 
     return fig
 
