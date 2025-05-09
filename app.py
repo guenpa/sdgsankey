@@ -1,12 +1,11 @@
 # app.py
 
-# Required libraries
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-import io  # For reading uploaded files in memory
-import os  # For checking default file paths
+import io
+import os
 
 # --- Configuration ---
 DEFAULT_NODE_COLOR     = "#CCCCCC"    # Grey for nodes.
@@ -16,27 +15,27 @@ DEFAULT_POSITIONS_PATH = "./data/node_positions.csv"
 
 # --- Page Config & Theme Enforcement ---
 st.set_page_config(page_title="Interactive Sankey Editor", layout="wide")
-# Hide main menu (including theme switcher)
-st.markdown("""
+st.markdown(
+    """
     <style>
     #MainMenu { visibility: hidden; }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
 # --- Helper Functions ---
 def is_valid_color(color_val):
-    """Checks if a color value is valid (not None, NaN, or blank)."""
     return bool(color_val and pd.notna(color_val) and str(color_val).strip() != "")
 
 def add_alpha(hex_color, alpha=1.0):
-    """Convert a hex color (e.g., "#009EDB") to an rgba string with the given alpha."""
     hex_color = hex_color.lstrip('#')
     r = int(hex_color[0:2], 16)
     g = int(hex_color[2:4], 16)
     b = int(hex_color[4:6], 16)
     return f"rgba({r}, {g}, {b}, {alpha})"
 
-# --- Core Sankey Function (NEW Plotly version) ---
+# --- Core Sankey Function ---
 def create_sankey_diagram(data, positions_df=None):
     if data is None or data.empty:
         return go.Figure()
@@ -56,39 +55,31 @@ def create_sankey_diagram(data, positions_df=None):
     # 2) Determine valid nodes
     valid_nodes = sorted(set(df['source']).union(df['target']))
 
-    # 3) Parse positions_df (if provided) into mappings + ordering
+    # 3) Parse positions_df
     if positions_df is not None and not positions_df.empty:
         pos = positions_df.copy()
         pos.columns = pos.columns.str.strip().str.lower()
         if 'node' in pos.columns:
             pos['node'] = pos['node'].astype(str).str.strip()
-            # keep only nodes that appear in the flows
             pos = pos[pos['node'].isin(valid_nodes)]
-
-            # build node order: as in CSV, then any missing nodes
             nodes = pos['node'].tolist()
             for n in valid_nodes:
                 if n not in nodes:
                     nodes.append(n)
-
-            # ensure required columns exist
             for col in ['x','y','node_color','incoming_flow_color','outgoing_flow_color']:
                 if col not in pos.columns:
                     pos[col] = np.nan if col in ['x','y'] else ""
-
-            node_colors_custom      = dict(zip(pos['node'], pos['node_color']))
-            incoming_flow_map       = dict(zip(pos['node'], pos['incoming_flow_color']))
-            outgoing_flow_map       = dict(zip(pos['node'], pos['outgoing_flow_color']))
-            # build predefined positions (flip y for Plotly)
+            node_colors_custom    = dict(zip(pos['node'], pos['node_color']))
+            incoming_flow_map     = dict(zip(pos['node'], pos['incoming_flow_color']))
+            outgoing_flow_map     = dict(zip(pos['node'], pos['outgoing_flow_color']))
             xs = pd.to_numeric(pos.set_index('node').reindex(nodes)['x'], errors='coerce')
             ys = pd.to_numeric(pos.set_index('node').reindex(nodes)['y'], errors='coerce')
-            predefined_positions    = {
+            predefined_positions  = {
                 'x': xs.where(xs.notna(), None).tolist(),
                 'y': [None if pd.isna(y) else 1-y for y in ys.tolist()]
             }
             arrangement = 'perpendicular'
         else:
-            # missing 'node' column: fallback
             nodes                = valid_nodes
             node_colors_custom   = {}
             incoming_flow_map    = {}
@@ -97,7 +88,6 @@ def create_sankey_diagram(data, positions_df=None):
             arrangement          = 'snap'
             st.warning("⚠️ Positions file missing 'node' column; using defaults.")
     else:
-        # no positions provided
         nodes                = valid_nodes
         node_colors_custom   = {}
         incoming_flow_map    = {}
@@ -116,7 +106,7 @@ def create_sankey_diagram(data, positions_df=None):
     }
     labels = [f"{n} ({node_values[n]:,.0f})" for n in nodes]
 
-    # 5) Final node colors (safe .strip())
+    # 5) Final node colors
     final_node_colors = []
     for n in nodes:
         raw = node_colors_custom.get(n, "")
@@ -129,24 +119,23 @@ def create_sankey_diagram(data, positions_df=None):
     targets = [idx[t] for t in df['target']]
     values  = df['value'].tolist()
 
-    # 7) Link colors (with zero-flow alpha)
+    # 7) Link colors
     link_colors = []
     for i, s in enumerate(df['source']):
         if df['is_zero'].iat[i]:
             link_colors.append(add_alpha(DEFAULT_FLOW_COLOR, 0.25))
         else:
-            # outgoing preference
             raw_oc = outgoing_flow_map.get(s, "")
             oc     = str(raw_oc).strip()
             if oc and oc.lower() != "nan":
                 link_colors.append(oc)
             else:
-                # incoming fallback
                 raw_ic = incoming_flow_map.get(df['target'].iat[i], "")
                 ic     = str(raw_ic).strip()
                 link_colors.append(ic if (ic and ic.lower() != "nan") else DEFAULT_FLOW_COLOR)
 
     # 8) Build the Plotly Sankey
+    customdata = [[df['source'].iat[i], values[i]] for i in range(len(values))]
     fig = go.Figure(go.Sankey(
         arrangement=arrangement,
         node=dict(
@@ -164,24 +153,23 @@ def create_sankey_diagram(data, positions_df=None):
             target=targets,
             value=values,
             color=link_colors,
-            customdata=[[df['source'].iloc[i], values[i]] for i in range(len(values))],
+            customdata=customdata,
             hovertemplate='%{customdata[0]}: %{customdata[1]:,.0f}<extra></extra>'
         )
     ))
 
-    # 9) Theme‐aware styling
+    # 9) Theme‐aware styling with explicit Plotly template
     theme = st.get_option("theme.base")  # "light" or "dark"
     if theme == 'dark':
-        bg     = '#000000'
-        font_c = '#FFFFFF'
+        template_name = 'plotly_dark'
+        font_c        = '#FFFFFF'
     else:
-        bg     = '#FFFFFF'
-        font_c = '#000000'
+        template_name = 'plotly_white'
+        font_c        = '#000000'
 
     fig.update_layout(
+        template=template_name,
         font=dict(color=font_c, size=12),
-        plot_bgcolor=bg,
-        paper_bgcolor=bg,
         height=800,
         margin=dict(l=20, r=20, t=40, b=20)
     )
@@ -196,28 +184,27 @@ for key in ['data_df','positions_df','editable_data']:
     if key not in st.session_state:
         st.session_state[key] = None
 
-# Load default data if present
-if (st.session_state.data_df is None) and os.path.exists(DEFAULT_DATA_PATH):
+# Load default data
+if st.session_state.data_df is None and os.path.exists(DEFAULT_DATA_PATH):
     try:
-        df = pd.read_excel(DEFAULT_DATA_PATH, sheet_name=0)
-        st.session_state.data_df      = df
-        st.session_state.editable_data = df.copy()
+        df0 = pd.read_excel(DEFAULT_DATA_PATH, sheet_name=0)
+        st.session_state.data_df      = df0
+        st.session_state.editable_data = df0.copy()
         st.info(f"✅ Loaded default data from {DEFAULT_DATA_PATH}")
     except Exception as e:
-        st.warning(f"⚠️ Default data load failed: {e}")
+        st.warning(f"⚠️ {e}")
 
-# Load default positions if present
-if (st.session_state.positions_df is None) and os.path.exists(DEFAULT_POSITIONS_PATH):
+# Load default positions
+if st.session_state.positions_df is None and os.path.exists(DEFAULT_POSITIONS_PATH):
     try:
         st.session_state.positions_df = pd.read_csv(DEFAULT_POSITIONS_PATH)
         st.info(f"✅ Loaded default positions from {DEFAULT_POSITIONS_PATH}")
     except Exception as e:
-        st.warning(f"⚠️ Default positions load failed: {e}")
+        st.warning(f"⚠️ {e}")
 
-# Chart placeholder
 chart_placeholder = st.empty()
 
-# --- Data Editor Section ---
+# --- Data Editor ---
 if st.session_state.editable_data is not None:
     st.markdown("---")
     st.subheader("📝 Edit Flow Data (Live Updates Chart)")
@@ -282,7 +269,7 @@ elif st.session_state.data_df is None:
 st.markdown("---")
 st.markdown("""
 **Instructions:**
-1. Default data may be loaded if you place files in `./data/`.
-2. Upload new files using the buttons above.
-3. Edit flow data live—the chart updates automatically.
+1. Place default files in `./data/` or upload new ones above.
+2. Edit flow data directly; the chart updates automatically.
+3. Use the CSV uploader to customize node positions/colors.
 """)
